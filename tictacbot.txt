@@ -1,0 +1,9 @@
+tictacbot
+
+commands
+
+new - start a new game if there is not a game currently running. Use new! to override and start a new game
+new! - start a new game killing a current game in progress
+board - display the board and who's turn it is
+x <#> (X <#>) - place an x in position # if it is their turn
+o <X> (O <#>) - place a y in position @ if it is their turn
