@@ -2,10 +2,8 @@
 package main
 
 import (
-	"encoding/csv"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"golang.org/x/net/websocket"
@@ -55,25 +53,23 @@ func parseMessage(gamePtr *tictactoe, ws *websocket.Conn, m Message) {
 	fmt.Printf("Fields: %#v\n", parts)
 	if parts[1] == "board" {
 		m.Text = printBoard(gamePtr)
-		postMessage(ws, m)
 	} else if parts[1] == "new" {
 		if gamePtr.running {
 			m.Text = "There is already a game in progress."
-			postMessage(ws, m)
 		} else {		
 			m.Text = newGame(gamePtr)
-			postMessage(ws, m)
 		}
 	} else if parts[1] == "new!" {
 			m.Text = newGame(gamePtr)
-			postMessage(ws, m)
 	} else if parts[1] == "X" || parts[1] == "x" || parts[1] == "O" || parts[1] == "o" {
 			m.Text = playerMove(gamePtr, parts)
-			postMessage(ws, m)
+	} else if parts[1] == "help" {
+			m.Text = helpText()
 	} else {
 		m.Text = fmt.Sprintf("I don't understand. Try saying help to me.\n")
-		postMessage(ws, m)
 	}
+
+	postMessage(ws, m)
 }
 
 func printBoard(gamePtr *tictactoe) string {
@@ -81,10 +77,10 @@ func printBoard(gamePtr *tictactoe) string {
 	if gamePtr.running {
 		runningStr = fmt.Sprintf("%s's Turn", gamePtr.turn)
 	} else {
-		runningStr = "The game is not in progress."
+		runningStr = "The game over."
 	}
 
-	boardStr := fmt.Sprintf("%s | %s | %s\n%s | %s | %s\n%s | %s | %s\n%s", printPlayer(gamePtr.board[0]), printPlayer(gamePtr.board[1]), printPlayer(gamePtr.board[2]), printPlayer(gamePtr.board[3]), printPlayer(gamePtr.board[4]), printPlayer(gamePtr.board[5]), printPlayer(gamePtr.board[6]), printPlayer(gamePtr.board[7]), printPlayer(gamePtr.board[8]), runningStr)
+	boardStr := fmt.Sprintf("```%s | %s | %s\n%s | %s | %s\n%s | %s | %s```\n%s", printPlayer(gamePtr.board[0]), printPlayer(gamePtr.board[1]), printPlayer(gamePtr.board[2]), printPlayer(gamePtr.board[3]), printPlayer(gamePtr.board[4]), printPlayer(gamePtr.board[5]), printPlayer(gamePtr.board[6]), printPlayer(gamePtr.board[7]), printPlayer(gamePtr.board[8]), runningStr)
 	return boardStr
 }
 
@@ -92,7 +88,7 @@ func printPlayer(player int) string {
 	switch player {
 		case 1: return "X"
 		case 2: return "O"
-		default: return ""
+		default: return " "
 	}
 }
 
@@ -111,6 +107,11 @@ func newGame(gamePtr *tictactoe) string {
 
 func playerMove(gamePtr *tictactoe, parts []string) string {
 	fmt.Println(parts)
+
+	if !gamePtr.running {
+		return ("The game is over. Say new to me to start a new game.")
+	}
+
 	listedPlayer := ""
 	switch parts[1] {
 		case "x": listedPlayer = "X"
@@ -125,29 +126,67 @@ func playerMove(gamePtr *tictactoe, parts []string) string {
 	}
 
 	movePosition, err := strconv.Atoi(parts[2])
-	if err != nil {
+	if err != nil || movePosition < 1 || movePosition > 9 {
 		return fmt.Sprintf("I didn't understand your move. You must say '%s #' where # is the postion you want to move on the board:\n1|2|3\n4|5|6\n7|8|9", gamePtr.turn)
 	}
 
-	fmt.Println(movePosition)
+	if gamePtr.board[movePosition - 1] != 0 {
+		return fmt.Sprintf("You can't move there. Here is the board:\n%s", printBoard(gamePtr))
+	} else {
+		if gamePtr.turn == "X" {
+			gamePtr.board[movePosition - 1] = 1
+			gamePtr.turn = "O"
+		} else {
+			gamePtr.board[movePosition - 1] = 2
+			gamePtr.turn = "X"
+		}
+
+		over, overText := isGameOver(gamePtr)
+		if over {
+			return overText
+		} else {
+			return fmt.Sprintf("%s", printBoard(gamePtr))
+		}
+	}
+
 	return ""
 }
 
-// Get the quote via Yahoo. You should replace this method to something
-// relevant to your team!
-func getQuote(sym string) string {
-	sym = strings.ToUpper(sym)
-	url := fmt.Sprintf("http://download.finance.yahoo.com/d/quotes.csv?s=%s&f=nsl1op&e=.csv", sym)
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Sprintf("error: %v", err)
+func isGameOver(gamePtr *tictactoe) (bool, string) {
+	winLines := [][]int {
+		[]int{0,1,2},
+		[]int{3,4,5},
+		[]int{6,7,8},
+		[]int{0,3,6},
+		[]int{1,4,7},
+		[]int{2,5,8},
+		[]int{0,4,8},
+		[]int{2,4,6},
 	}
-	rows, err := csv.NewReader(resp.Body).ReadAll()
-	if err != nil {
-		return fmt.Sprintf("error: %v", err)
+
+	for _, line := range winLines {
+		if gamePtr.board[line[0]] != 0 && gamePtr.board[line[0]] == gamePtr.board[line[1]] && gamePtr.board[line[1]] == gamePtr.board[line[2]] {
+			gamePtr.running = false
+			return true, fmt.Sprintf("*%s Wins!*\n%s", printPlayer(gamePtr.board[line[0]]), printBoard(gamePtr))
+		}
 	}
-	if len(rows) >= 1 && len(rows[0]) == 5 {
-		return fmt.Sprintf("%s (%s) is trading at $%s", rows[0][0], rows[0][1], rows[0][2])
+
+	emptySpace := false
+	for i := 0; i < 9; i++ {
+		if gamePtr.board[i] == 0 {
+			emptySpace = true
+			break
+		}
 	}
-	return fmt.Sprintf("unknown response format (symbol was \"%s\")", sym)
+
+	if !emptySpace {
+			gamePtr.running = false
+			return true, fmt.Sprintf("*It's a draw!*\n%s", printBoard(gamePtr))
+	}
+
+	return false, ""
+}
+
+func helpText() string {
+	return ("I moderate a single Tic-Tac-Toe Game. Here's what you can say to me:\n*new* - Start a new game if there is not already one running.\n*new!* - Quit the current game a start a new one.\n*board* - Display the board and who's turn it is.\n*X #* - Place an X in board space #. The spaces are numbered across the board and down starting with 1 in the upper left corner.\n*O #* - Place an O in board space #.\n*help* - This help text.")
 }
